@@ -9,8 +9,8 @@ import org.junit.Test;
  * @since 08/15/2018
  */
 public class WalkerTest {
-    public static final Walker.FQN ROOT = new Walker.FQN("test", "dbo", "M");
-    public static final Walker.FQN BOTTOM = new Walker.FQN("test", "dbo", "P2");
+    public static final Walker.Table ROOT = new Walker.Table("test", "dbo", "M");
+    public static final Walker.Table BOTTOM = new Walker.Table("test", "dbo", "P2");
     Walker walker;
 
     @Before
@@ -38,10 +38,5 @@ public class WalkerTest {
     @Test
     public void walkUp() {
         walker.walkUp(BOTTOM, Walker::PRINT);
-    }
-
-    @Test
-    public void copy() {
-        walker.copy();
     }
 }

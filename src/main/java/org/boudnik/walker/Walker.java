@@ -12,55 +12,55 @@ import java.util.function.Function;
  */
 public class Walker {
 
-    private Map<FQN, List<Constraint>> byPrimary = new HashMap<>();
-    private Map<FQN, List<Constraint>> byForeign = new HashMap<>();
-    private Map<FQN, List<String>> columns = new HashMap<>();
+    private Map<Table, List<Constraint>> byPrimary = new HashMap<>();
+    private Map<Table, List<Constraint>> byForeign = new HashMap<>();
+    private Map<Table, List<String>> columns = new HashMap<>();
 
-    final static String PRINT(FQN fqn, Object level) {
-        System.out.println(new String(new char[(int) level]).replace("\0", " ") + fqn);
+    final static String PRINT(Table table, Object level) {
+        System.out.println(new String(new char[(int) level]).replace("\0", " ") + table);
         return null;
     }
 
-    static class FQN {
+    static class Table {
         String db;
         String schema;
-        String table;
+        String name;
 
-        public FQN(String db, String schema, String table) {
+        public Table(String db, String schema, String name) {
             this.db = db;
             this.schema = schema;
-            this.table = table;
+            this.name = name;
         }
 
         @Override
         public String toString() {
-            return db + '.' + schema + '.' + table;
+            return db + '.' + schema + '.' + name;
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            FQN fqn = (FQN) o;
-            return Objects.equals(db, fqn.db) &&
-                    Objects.equals(schema, fqn.schema) &&
-                    Objects.equals(table, fqn.table);
+            Table table = (Table) o;
+            return Objects.equals(db, table.db) &&
+                    Objects.equals(schema, table.schema) &&
+                    Objects.equals(this.name, table.name);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(db, schema, table);
+            return Objects.hash(db, schema, name);
         }
     }
 
     static class Constraint {
-        FQN primary;
+        Table primary;
         List<String> pk;
-        FQN foreign;
+        Table foreign;
         List<String> fk;
         String name;
 
-        public Constraint(FQN primary, String pk, FQN foreign, String fk, String name) {
+        public Constraint(Table primary, String pk, Table foreign, String fk, String name) {
             this.primary = primary;
             this.pk = new ArrayList<>(Arrays.asList(pk));
             this.foreign = foreign;
@@ -107,7 +107,7 @@ public class Walker {
         try (PreparedStatement statement = connection.prepareStatement("select object_id, OBJECT_SCHEMA_NAME(object_id), name from sys.tables")) {
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    columns.put(new FQN("test", resultSet.getString(2), resultSet.getString(3)), null);
+                    columns.put(new Table("test", resultSet.getString(2), resultSet.getString(3)), null);
                 }
             }
         }
@@ -116,21 +116,21 @@ public class Walker {
 // todo: FK: FKTABLE_QUALIFIER, FKTABLE_OWNER, FKTABLE_NAME, FKCOLUMN_NAME
 // todo: KEY_SEQ UPDATE_RULE DELETE_RULE FK_NAME PK_NAME DEFERRABILITY
         List<Constraint> constraints = new ArrayList<>();
-        for (FQN fqn : columns.keySet()) {
+        for (Table table : columns.keySet()) {
             try (CallableStatement statement = connection.prepareCall("exec sp_fkeys ?, ?, ?")) {
-                statement.setString(1, fqn.table);
-                statement.setString(2, fqn.schema);
-                statement.setString(3, fqn.db);
+                statement.setString(1, table.name);
+                statement.setString(2, table.schema);
+                statement.setString(3, table.db);
                 try (ResultSet resultSet = statement.executeQuery()) {
                     while (resultSet.next()) {
                         constraints.add(
                                 new Constraint(
-                                        new FQN(
+                                        new Table(
                                                 resultSet.getString("PKTABLE_QUALIFIER"),
                                                 resultSet.getString("PKTABLE_OWNER"),
                                                 resultSet.getString("PKTABLE_NAME")),
                                         resultSet.getString("PKCOLUMN_NAME"),
-                                        new FQN(
+                                        new Table(
                                                 resultSet.getString("FKTABLE_QUALIFIER"),
                                                 resultSet.getString("FKTABLE_OWNER"),
                                                 resultSet.getString("FKTABLE_NAME")),
@@ -162,7 +162,7 @@ public class Walker {
     }
 
 
-    private String walk(Map<FQN, List<Constraint>> tree, FQN root, Function<Constraint, FQN> direction, BiFunction<FQN, Object, String> action, int level) {
+    private String walk(Map<Table, List<Constraint>> tree, Table root, Function<Constraint, Table> direction, BiFunction<Table, Object, String> action, int level) {
         String apply = action.apply(root, level);
         List<Constraint> constraints = tree.get(root);
         if (constraints == null) {
@@ -174,57 +174,27 @@ public class Walker {
         return apply;
     }
 
-    String walkDown(FQN start, BiFunction<FQN, Object, String> action) {
+    String walkDown(Table start, BiFunction<Table, Object, String> action) {
         return walk(byPrimary, start, constraint -> constraint.foreign, action, 0);
     }
 
-    String walkUp(FQN start, BiFunction<FQN, Object, String> action) {
+    String walkUp(Table start, BiFunction<Table, Object, String> action) {
         return walk(byForeign, start, constraint -> constraint.primary, action, 0);
     }
 
-    void forEach(Consumer<FQN> consumer) {
-        for (Map.Entry<FQN, List<String>> entry : columns.entrySet()) {
+    void forEach(Consumer<Table> consumer) {
+        for (Map.Entry<Table, List<String>> entry : columns.entrySet()) {
             System.out.println("for " + entry.getKey() + ':');
             consumer.accept(entry.getKey());
             System.out.println();
         }
     }
 
-    void forEach(Function<FQN, Object> function) {
-        for (Map.Entry<FQN, List<String>> entry : columns.entrySet()) {
-            System.out.println("for " + entry.getKey() + ':');
-            System.out.println(function.apply(entry.getKey()));
-            System.out.println();
-        }
-    }
-
-    Consumer<FQN> delete = table -> walkDown(table, (t, level) -> {
+    Consumer<Table> delete = table -> walkDown(table, (t, level) -> {
         String x = new String(new char[(int) level]).replace("\0", " ") + "delete from " + t;
         System.out.println(x);
         return x;
     });
-
-    Function<FQN, Object> d =
-            table -> walkDown(
-                    table,
-                    (t, level) -> new String(new char[(int) level]).replace("\0", " ") + "delete from " + t);
-
-
-    String copy() {
-        for (Map.Entry<FQN, List<String>> entry : columns.entrySet()) {
-            System.out.println("for " + entry.getKey() + ':');
-            walkDown(entry.getKey(), (fqn, level) -> {
-                System.out.println(new String(new char[(int) level]).replace("\0", " ") + "insert into " + fqn);
-                return null;
-            });
-            System.out.println();
-        }
-        return null;
-    }
-
-    String move() {
-        return null;
-    }
 
     public void close() throws SQLException {
         connection.close();
