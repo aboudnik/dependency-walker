@@ -2,8 +2,7 @@ package org.boudnik.walker;
 
 import java.sql.*;
 import java.util.*;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
@@ -12,14 +11,12 @@ import java.util.function.Function;
  */
 public class Walker {
 
+    //        public static final String DATABASE = "PITEDR_ARCHIVE";
+    public static final String DATABASE = "test";
     private Map<Table, List<Constraint>> byPrimary = new HashMap<>();
     private Map<Table, List<Constraint>> byForeign = new HashMap<>();
     private Map<Table, List<String>> columns = new HashMap<>();
-
-    final static String PRINT(Table table, Object level) {
-        System.out.println(new String(new char[(int) level]).replace("\0", " ") + table);
-        return null;
-    }
+    private String condition;
 
     static class Table {
         String db;
@@ -27,14 +24,14 @@ public class Walker {
         String name;
 
         public Table(String db, String schema, String name) {
-            this.db = db;
-            this.schema = schema;
-            this.name = name;
+            this.db = db/*.toLowerCase()*/;
+            this.schema = schema/*.toLowerCase()*/;
+            this.name = name/*.toLowerCase()*/;
         }
 
         @Override
         public String toString() {
-            return db + '.' + schema + '.' + name;
+            return /*db + '.' + */schema + '.' + name;
         }
 
         @Override
@@ -62,9 +59,9 @@ public class Walker {
 
         public Constraint(Table primary, String pk, Table foreign, String fk, String name) {
             this.primary = primary;
-            this.pk = new ArrayList<>(Arrays.asList(pk));
+            this.pk = new ArrayList<>(Arrays.asList(pk/*.toLowerCase()*/));
             this.foreign = foreign;
-            this.fk = new ArrayList<>(Arrays.asList(fk));
+            this.fk = new ArrayList<>(Arrays.asList(fk/*.toLowerCase()*/));
             this.name = name;
         }
 
@@ -80,20 +77,19 @@ public class Walker {
 
         @Override
         public int hashCode() {
-
             return Objects.hash(primary, foreign, name);
         }
 
         @Override
         public String toString() {
-            return primary.toString() + '.' + pk + " -* " + foreign.toString() + '.' + fk + '(' + name + ')';
+            return '{' + name + ", " + primary.toString() + '.' + pk + " -* " + foreign.toString() + '.' + fk + '}';
         }
     }
 
     private final Connection connection;
 
     private Walker() throws SQLException {
-        connection = DriverManager.getConnection("jdbc:sqlserver://localhost:1433;database=test;integratedSecurity=true");
+        connection = DriverManager.getConnection("jdbc:sqlserver://localhost:1433;database=" + DATABASE + ";integratedSecurity=true");
     }
 
     static Walker getInstance() throws Exception {
@@ -107,7 +103,7 @@ public class Walker {
         try (PreparedStatement statement = connection.prepareStatement("select object_id, OBJECT_SCHEMA_NAME(object_id), name from sys.tables")) {
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    columns.put(new Table("test", resultSet.getString(2), resultSet.getString(3)), null);
+                    columns.put(new Table(DATABASE, resultSet.getString(2), resultSet.getString(3)), null);
                 }
             }
         }
@@ -162,39 +158,57 @@ public class Walker {
     }
 
 
-    private String walk(Map<Table, List<Constraint>> tree, Table root, Function<Constraint, Table> direction, BiFunction<Table, Object, String> action, int level) {
-        String apply = action.apply(root, level);
+    private void walk(Map<Table, List<Constraint>> tree, Table root, Function<Constraint, Table> direction, BiConsumer<Table, List<Constraint>> action, List<Constraint> path) {
         List<Constraint> constraints = tree.get(root);
-        if (constraints == null) {
-            return apply;
+        if (constraints != null) {
+            for (Constraint constraint : constraints) {
+                List<Constraint> p = new ArrayList<>(path);
+                p.add(0, constraint);
+                walk(tree, direction.apply(constraint), direction, action, p);
+            }
         }
+        action.accept(root, path);
+    }
+
+
+    void walkDown(Table start, BiConsumer<Table, List<Constraint>> action) {
+        walk(byPrimary, start, constraint -> constraint.foreign, action, new ArrayList<>());
+    }
+
+    void walkUp(Table start, BiConsumer<Table, List<Constraint>> action) {
+        walk(byForeign, start, constraint -> constraint.primary, action, new ArrayList<>());
+    }
+
+    void delete(Table start, String condition) {
+        this.condition = condition;
+        walk(byPrimary, start, constraint -> constraint.foreign, this::delete, new ArrayList<>());
+    }
+
+    static final BiConsumer<Table, List<Constraint>> PRINT = (table, constraints) -> System.out.println(new String(new char[constraints.size()]).replace("\0", " ") + table + " " + constraints);
+
+
+    void delete(Table table, List<Constraint> constraints) {
+        System.out.println("-- level " + constraints.size() + " " + table + " constraints " + constraints);
+        StringBuilder sb = new StringBuilder("delete from " + table + "\n");
+        if (!constraints.isEmpty())
+            sb.append("from ").append(table).append("\n");
         for (Constraint constraint : constraints) {
-            walk(tree, direction.apply(constraint), direction, action, level + 2);
+            sb.append("inner join ").append(constraint.primary).append(" on ").append(composeOn(constraint)).append("\n");
         }
-        return apply;
+        sb.append("where " + condition);
+        System.out.println(sb.toString());
     }
 
-    String walkDown(Table start, BiFunction<Table, Object, String> action) {
-        return walk(byPrimary, start, constraint -> constraint.foreign, action, 0);
-    }
-
-    String walkUp(Table start, BiFunction<Table, Object, String> action) {
-        return walk(byForeign, start, constraint -> constraint.primary, action, 0);
-    }
-
-    void forEach(Consumer<Table> consumer) {
-        for (Map.Entry<Table, List<String>> entry : columns.entrySet()) {
-            System.out.println("for " + entry.getKey() + ':');
-            consumer.accept(entry.getKey());
-            System.out.println();
+    private static String composeOn(Constraint constraint) {
+        StringBuilder sb = new StringBuilder();
+        String and = "";
+        List<String> pk = constraint.pk;
+        for (int i = 0; i < pk.size(); i++) {
+            sb.append(and).append(constraint.foreign).append(".").append(constraint.fk.get(i)).append("=").append(constraint.primary).append(".").append(constraint.pk.get(i));
+            and = " and ";
         }
+        return sb.toString();
     }
-
-    Consumer<Table> delete = table -> walkDown(table, (t, level) -> {
-        String x = new String(new char[(int) level]).replace("\0", " ") + "delete from " + t;
-        System.out.println(x);
-        return x;
-    });
 
     public void close() throws SQLException {
         connection.close();

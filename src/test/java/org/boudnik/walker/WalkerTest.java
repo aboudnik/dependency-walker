@@ -9,6 +9,7 @@ import org.junit.Test;
  * @since 08/15/2018
  */
 public class WalkerTest {
+//    public static final Walker.Table ROOT = new Walker.Table("PITEDR_ARCHIVE", "dbo", "DIM_VA_CLAIM");
     public static final Walker.Table ROOT = new Walker.Table("test", "dbo", "M");
     public static final Walker.Table BOTTOM = new Walker.Table("test", "dbo", "P2");
     Walker walker;
@@ -26,17 +27,17 @@ public class WalkerTest {
 
 
     @Test
-    public void delete() {
-        walker.forEach(walker.delete);
-    }
-
-    @Test
     public void walkDown() {
-        walker.walkDown(ROOT, Walker::PRINT);
+        walker.walkDown(ROOT, walker.PRINT);
     }
 
     @Test
     public void walkUp() {
-        walker.walkUp(BOTTOM, Walker::PRINT);
+        walker.walkUp(BOTTOM, walker.PRINT);
+    }
+
+    @Test
+    public void delete() {
+        walker.delete(ROOT, "M.id=2");
     }
 }
