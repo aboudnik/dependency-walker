@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+	<appender name="stdout" class="ch.qos.logback.core.ConsoleAppender">
+	
+		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+			<level>INFO</level>
+		</filter>
+		
+		<encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+			<!-- see http://logback.qos.ch/manual/layouts.html -->
+			<pattern>%date{yyyy-MM-dd HH:mm:ss.SSS} | %logger{16} | %message%n</pattern>
+		</encoder>
+	</appender>
+
+	<appender name="logfileout" class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<append>true</append>
+		<file>${etl_log_home}/fileLoader.log</file>
+		<encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+			<pattern>%date{yyyy-MM-dd HH:mm:ss.SSS} | %message%n</pattern>
+		</encoder>
+		<!-- Daily rollover -->
+		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+			<fileNamePattern>${etl_log_home}/fileLoader-%d{yyyy-MM-dd}.log</fileNamePattern>
+			<maxHistory>90</maxHistory>
+		</rollingPolicy>
+	</appender>
+
+    <root level="INFO">
+        <appender-ref ref="stdout"/>
+        <appender-ref ref="logfileout"/>
+    </root>
+    
+</configuration>

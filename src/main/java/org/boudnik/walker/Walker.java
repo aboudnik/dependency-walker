@@ -1,5 +1,8 @@
 package org.boudnik.walker;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.sql.*;
 import java.util.*;
 import java.util.function.BiConsumer;
@@ -11,12 +14,14 @@ import java.util.function.Function;
  */
 public class Walker {
 
-    //        public static final String DATABASE = "PITEDR_ARCHIVE";
-    public static final String DATABASE = "test";
+    private final Logger logger = LoggerFactory.getLogger(getClass());
+
+
     private Map<Table, List<Constraint>> byPrimary = new HashMap<>();
     private Map<Table, List<Constraint>> byForeign = new HashMap<>();
     private Map<Table, List<String>> columns = new HashMap<>();
     private String condition;
+    private final String database;
 
     static class Table {
         String db;
@@ -31,7 +36,7 @@ public class Walker {
 
         @Override
         public String toString() {
-            return /*db + '.' + */schema + '.' + name;
+            return db + '.' + schema + '.' + name;
         }
 
         @Override
@@ -59,9 +64,9 @@ public class Walker {
 
         public Constraint(Table primary, String pk, Table foreign, String fk, String name) {
             this.primary = primary;
-            this.pk = new ArrayList<>(Arrays.asList(pk/*.toLowerCase()*/));
+            this.pk = new ArrayList<>(Collections.singletonList(pk));
             this.foreign = foreign;
-            this.fk = new ArrayList<>(Arrays.asList(fk/*.toLowerCase()*/));
+            this.fk = new ArrayList<>(Collections.singletonList(fk));
             this.name = name;
         }
 
@@ -82,18 +87,14 @@ public class Walker {
 
         @Override
         public String toString() {
-            return '{' + name + ", " + primary.toString() + '.' + pk + " -* " + foreign.toString() + '.' + fk + '}';
+            return '{' + name.toLowerCase() + ", " + primary.toString().toLowerCase() + '.' + pk.toString().toLowerCase() + " -* " + foreign.toString().toLowerCase() + '.' + fk.toString().toLowerCase() + '}';
         }
     }
 
     private final Connection connection;
 
-    private Walker() throws SQLException {
-        connection = DriverManager.getConnection("jdbc:sqlserver://localhost:1433;database=" + DATABASE + ";integratedSecurity=true");
-    }
-
-    static Walker getInstance() throws Exception {
-        return new Walker();
+    public Walker(final String address, final int port, String database) throws SQLException {
+        connection = DriverManager.getConnection("jdbc:sqlserver://" + address + ":" + port + ";database=" + (this.database = database), "larissa", "7p;'UsG/#Glg!Ms");
     }
 
     public void build(String table) throws SQLException {
@@ -103,7 +104,7 @@ public class Walker {
         try (PreparedStatement statement = connection.prepareStatement("select object_id, OBJECT_SCHEMA_NAME(object_id), name from sys.tables")) {
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    columns.put(new Table(DATABASE, resultSet.getString(2), resultSet.getString(3)), null);
+                    columns.put(new Table(database, resultSet.getString(2), resultSet.getString(3)), null);
                 }
             }
         }
@@ -196,7 +197,7 @@ public class Walker {
             sb.append("inner join ").append(constraint.primary).append(" on ").append(composeOn(constraint)).append("\n");
         }
         sb.append("where " + condition);
-        System.out.println(sb.toString());
+        System.out.println(sb.toString().toLowerCase());
     }
 
     private static String composeOn(Constraint constraint) {
@@ -212,5 +213,15 @@ public class Walker {
 
     public void close() throws SQLException {
         connection.close();
+    }
+
+    public static void main(String[] args) throws SQLException {
+        for (int i = 0; i < args.length; i++) {
+            System.out.println(args[i]);
+        }
+        if (args.length == 5) {
+            Walker walker = new Walker(args[0], Integer.parseInt(args[1]), args[2]);
+            System.out.println("Walker.main OK!");
+        }
     }
 }
